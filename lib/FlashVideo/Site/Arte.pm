@@ -3,57 +3,37 @@ package FlashVideo::Site::Arte;
 
 use strict;
 use FlashVideo::Utils;
+use FlashVideo::JSON;
 
 sub find_video {
   my ($self, $browser, $embed_url, $prefs) = @_;
-  my ($lang, $xmlurl1, $xmlurl2, $filename, $videourl, $hash, $playerurl, $quality);
+  my ($lang, $filename, $videourl);
 
   debug "Arte::find_video called, embed_url = \"$embed_url\"\n";
 
   my $pageurl = $browser->uri() . "";
-  if($pageurl =~ /videos\.arte\.tv\/(..)\//) {
+  if($pageurl =~ /www\.arte\.tv\/guide\/(..)\//) {
     $lang = $1;
   } else {
     die "Unable to find language in original URL \"$pageurl\"\n";
   }
 
-  if($browser->content =~ /videorefFileUrl = "(.*)";/) {
-    $xmlurl1 = $1;
-    debug "found videorefFileUrl \"$xmlurl1\"\n";
-    ($filename = $xmlurl1) =~ s/-.*$//;
-    $filename =~ s/^.*\///g;
-    $filename = title_to_filename($filename);
+  my $jsonurl;
+  if($browser->content =~ /arte_vp_url="(.*)"/) {
+    $jsonurl = $1;
   } else {
-    die "Unable to find 'videorefFileUrl' in page\n";
+    die "Unable to find 'arte_vp_url' in page\n";
   }
+  $browser->get($jsonurl);
 
-  if($browser->content =~ /<param name="movie" value="(http:\/\/videos\.arte\.tv\/[^\?]+)\?/) {
-    $playerurl = $1;
-    debug "found playerurl \"$playerurl\"\n";
-  }
+  my $json = from_json($browser->content);
+  my $entry;
+  $entry = $json->{videoJsonPlayer}->{VSR}->{RTMP_SQ_1};
 
-  $browser->get($xmlurl1);
-
-  if($browser->content =~ /<video lang="$lang" ref="(.*)"\s?\/>/) {
-    $xmlurl2 = $1;
-    debug "found <video ref=\"$xmlurl2\">\n";
-  } else {
-    die "Unable to find <video ref...> in XML $xmlurl1\n";
-  }
-
-  $browser->get($xmlurl2);
-  $quality = {high => 'hd', low => 'sd'}->{$prefs->{quality}};
-
-  if($browser->content =~ /<url quality="$quality">([^<]+)<\/url>/) {
-    $videourl = { rtmp => $1,
-		flv => $filename};
-    if(defined $playerurl) {
-      $videourl->{swfVfy} = $playerurl;
-    }
-  } else {
-    die "Unable to find <url ...> in XML $xmlurl2\n";
-  }
-
+  $videourl = {
+    rtmp => $entry->{streamer} . "mp4:" . $entry->{url}
+  };
+  $filename = title_to_filename($json->{videoJsonPlayer}->{VTI});
   return $videourl, $filename;
 }
 
